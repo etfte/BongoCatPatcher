@@ -64,7 +64,7 @@ public class PatcherForm : Form
 
         var lblSubtitle = new Label
         {
-            Text = "Внутриигровое меню (F1), скины, PawPass, 999k монет, кастомные звуки и защита Steam Guardian",
+            Text = "Отдельная вкладка в меню игры, скины, PawPass, 999k монет, кастомные звуки и защита Steam Guardian",
             Font = new Font("Segoe UI", 9f),
             ForeColor = Color.FromArgb(161, 161, 170),
             AutoSize = true,
@@ -294,7 +294,7 @@ public class PatcherForm : Form
         {
             lblStatus.Text = "✔ ПРОПАТЧЕНА";
             lblStatus.BackColor = Color.FromArgb(16, 185, 129);
-            if (announce) Log("[i] Статус: Сборка пропатчена (меню ModMenu F1, скины, PawPass, 999k монет активны).");
+            if (announce) Log("[i] Статус: Сборка пропатчена (вкладка мода в меню игры, скины, PawPass, 999k монет активны).");
         }
         else
         {
@@ -333,8 +333,8 @@ public class PatcherForm : Form
 
         if (ok)
         {
-            Log("[V] Патч успешно применён! Внутриигровое меню доступно по нажатию F1 / Insert.");
-            MessageBox.Show("Патч успешно применён!\n\n• Внутриигровое меню доступно в игре по клавишам F1 / Insert / F8 или кнопке в углу.\n• Все тумблеры можно переключать прямо в игре.\n• Монеты, PawPass и персистентность активны.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Log("[V] Патч успешно применён! В меню игры появилась отдельная вкладка настроек мода (без биндов).");
+            MessageBox.Show("Патч успешно применён!\n\n• Откройте игровое меню Bongo Cat — в строке вкладок появилась отдельная фиолетовая кнопка вкладки мода.\n• Никаких биндов и горячих клавиш: настройки переключаются прямо в меню игры.\n• Монеты, PawPass и персистентность активны.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 

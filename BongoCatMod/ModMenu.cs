@@ -1,13 +1,18 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
+using TMPro;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.Localization.Components;
+using UnityEngine.UI;
 
 namespace BongoCat;
 
 public class ModMenu : MonoBehaviour
 {
-    private static ModMenu? _instance;
     private static bool _initialized;
 
     // Mod options
@@ -17,12 +22,7 @@ public class ModMenu : MonoBehaviour
     public static bool InfiniteCoins = true;
     public static bool UnlockPromoItems = true;
     public static bool CustomSounds = false;
-    public static int TargetFps = 0; // 0 = Default, -1 = Unlimited
-
-    // UI state
-    private bool _isOpen = false;
-    private Rect _windowRect = new Rect(30, 30, 490, 520);
-    private int _tab = 0; // 0 = Skins, 1 = Sound & FPS, 2 = About
+    public static int TargetFps = 0;
 
     public static void Init()
     {
@@ -30,10 +30,11 @@ public class ModMenu : MonoBehaviour
         _initialized = true;
 
         LoadSettings();
+        ApplyFpsLimit();
 
-        var go = new GameObject("[BongoCatModMenu]");
+        var go = new GameObject("[BongoCatModManager]");
         DontDestroyOnLoad(go);
-        _instance = go.AddComponent<ModMenu>();
+        go.AddComponent<ModMenu>();
     }
 
     private void Awake()
@@ -42,238 +43,252 @@ public class ModMenu : MonoBehaviour
         ApplyFpsLimit();
     }
 
-    private void OnGUI()
+    public static void InjectIntoMenuTabs(MenuTabs menuTabs)
     {
-        // Hotkeys check in OnGUI
-        if (Event.current.type == EventType.KeyDown)
+        if (menuTabs == null) return;
+        menuTabs.StartCoroutine(InjectDelayed(menuTabs));
+    }
+
+    private static IEnumerator InjectDelayed(MenuTabs menuTabs)
+    {
+        yield return null; // Wait 1 frame so Tabs finishes Awake
+
+        try
         {
-            if (Event.current.keyCode == KeyCode.F1 || Event.current.keyCode == KeyCode.Insert || Event.current.keyCode == KeyCode.F8)
+            Tabs? tabsComp = menuTabs.GetComponent<Tabs>();
+            if (tabsComp == null) yield break;
+
+            FieldInfo? tabsField = typeof(Tabs).GetField("tabs", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (tabsField == null) yield break;
+
+            Array? oldTabs = tabsField.GetValue(tabsComp) as Array;
+            if (oldTabs == null || oldTabs.Length == 0) yield break;
+
+            // Check if already injected
+            Type tabType = typeof(Tabs).GetNestedType("Tab", BindingFlags.NonPublic)!;
+            FieldInfo btnField = tabType.GetField("button")!;
+            FieldInfo tabContentField = tabType.GetField("tab")!;
+            FieldInfo canvasGroupField = tabType.GetField("canvasGroup")!;
+
+            for (int i = 0; i < oldTabs.Length; i++)
             {
-                _isOpen = !_isOpen;
-                Event.current.Use();
+                object? t = oldTabs.GetValue(i);
+                if (t != null)
+                {
+                    Button? b = btnField.GetValue(t) as Button;
+                    if (b != null && b.gameObject.name == "ModMenuTabButton")
+                    {
+                        yield break; // Already injected
+                    }
+                }
+            }
+
+            // Reference settings tab (index 4 or second to last)
+            int templateIdx = Mathf.Clamp(4, 0, oldTabs.Length - 1);
+            object settingsTab = oldTabs.GetValue(templateIdx)!;
+            Button settingsButton = (Button)btnField.GetValue(settingsTab);
+            GameObject settingsPanel = (GameObject)tabContentField.GetValue(settingsTab);
+
+            // 1. Clone Tab Button in Menu Tab Bar
+            GameObject newBtnGo = GameObject.Instantiate(settingsButton.gameObject, settingsButton.transform.parent);
+            newBtnGo.name = "ModMenuTabButton";
+            Button newButton = newBtnGo.GetComponent<Button>();
+            newButton.onClick = new Button.ButtonClickedEvent();
+
+            // Style the tab button with distinct pastel purple accent
+            Image[] btnImages = newBtnGo.GetComponentsInChildren<Image>(true);
+            foreach (var img in btnImages)
+            {
+                img.color = new Color(0.72f, 0.45f, 1f, 1f);
+            }
+
+            // Disable or update tooltip
+            MonoBehaviour[] hoverBehaviors = newBtnGo.GetComponentsInChildren<MonoBehaviour>(true);
+            foreach (var mb in hoverBehaviors)
+            {
+                if (mb.GetType().Name.Contains("Tooltip"))
+                {
+                    mb.enabled = false;
+                }
+            }
+
+            // 2. Clone Tab Content Panel
+            GameObject newPanelGo = GameObject.Instantiate(settingsPanel, settingsPanel.transform.parent);
+            newPanelGo.name = "ModMenuTabPanel";
+            CanvasGroup newCanvasGroup = newPanelGo.GetComponent<CanvasGroup>();
+
+            // Setup content inside new panel
+            SetupPanelContent(newPanelGo);
+
+            // 3. Create new Tab entry
+            object newTab = Activator.CreateInstance(tabType)!;
+            btnField.SetValue(newTab, newButton);
+            tabContentField.SetValue(newTab, newPanelGo);
+            canvasGroupField.SetValue(newTab, newCanvasGroup);
+
+            // 4. Extend tabs array
+            int newTabIndex = oldTabs.Length;
+            Array newTabsArray = Array.CreateInstance(tabType, newTabIndex + 1);
+            Array.Copy(oldTabs, newTabsArray, newTabIndex);
+            newTabsArray.SetValue(newTab, newTabIndex);
+            tabsField.SetValue(tabsComp, newTabsArray);
+
+            // 5. Connect click event to Tabs.OpenTab
+            newButton.onClick.AddListener(() =>
+            {
+                tabsComp.OpenTab(newTabIndex);
+            });
+
+            // Initially deactivate
+            newPanelGo.SetActive(false);
+            newButton.interactable = true;
+        }
+        catch (Exception ex)
+        {
+            global::UnityEngine.Debug.LogError("[BongoCatMod] Error injecting mod tab: " + ex);
+        }
+    }
+
+    private static void SetupPanelContent(GameObject panel)
+    {
+        try
+        {
+            ScrollRect scrollRect = panel.GetComponentInChildren<ScrollRect>(true);
+            Transform content = scrollRect != null ? scrollRect.content : panel.transform;
+
+            // Find an existing PlayerPrefsToggle to use as row template
+            PlayerPrefsToggle[] existingToggles = content.GetComponentsInChildren<PlayerPrefsToggle>(true);
+            GameObject? rowTemplate = existingToggles.Length > 0 ? existingToggles[0].gameObject : null;
+
+            if (rowTemplate != null)
+            {
+                // Deactivate original children
+                for (int i = 0; i < content.childCount; i++)
+                {
+                    content.GetChild(i).gameObject.SetActive(false);
+                }
+
+                // Create custom mod toggles
+                CreateToggleRow(rowTemplate, content, "Разблокировать все скины и шапки", "BMOD_SKINS", UnlockAllSkins, v => UnlockAllSkins = v);
+                CreateToggleRow(rowTemplate, content, "Сохранять экипировку при перезапуске", "BMOD_PERSIST", KeepEquipped, v => KeepEquipped = v);
+                CreateToggleRow(rowTemplate, content, "Разблокировать боевой пропуск (PawPass)", "BMOD_PAWPASS", UnlockPawPass, v => UnlockPawPass = v);
+                CreateToggleRow(rowTemplate, content, "999 999 монет в копилке", "BMOD_COINS", InfiniteCoins, v => InfiniteCoins = v);
+                CreateToggleRow(rowTemplate, content, "Разблокировать скрытые промо-предметы", "BMOD_PROMO", UnlockPromoItems, v => UnlockPromoItems = v);
+                CreateToggleRow(rowTemplate, content, "Кастомные звуки нажатий (Mods/Sounds)", "BMOD_SOUNDS", CustomSounds, v => CustomSounds = v);
+
+                // Create folder buttons
+                Button? templateBtn = content.GetComponentsInChildren<Button>(true).Length > 0
+                    ? content.GetComponentsInChildren<Button>(true)[0] : null;
+
+                if (templateBtn != null)
+                {
+                    CreateActionButton(templateBtn.gameObject, content, "🎨 Открыть папку скинов (Mods/Skins)", () =>
+                    {
+                        OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Skins"));
+                    });
+
+                    CreateActionButton(templateBtn.gameObject, content, "🎵 Открыть папку звуков (Mods/Sounds)", () =>
+                    {
+                        OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Sounds"));
+                    });
+                }
             }
         }
-
-        // Top-Right Quick Toggle Button matching Bongo Cat's pastel theme
-        float btnW = 160f;
-        float btnH = 30f;
-        var pillRect = new Rect(Screen.width - btnW - 15f, 15f, btnW, btnH);
-
-        Color pillColor = _isOpen ? new Color(0.85f, 0.35f, 0.45f) : new Color(0.62f, 0.45f, 0.95f);
-        if (DrawButton(pillRect, _isOpen ? "✕ Закрыть меню" : "🐱 MOD MENU (F1)", pillColor))
+        catch (Exception ex)
         {
-            _isOpen = !_isOpen;
-        }
-
-        if (_isOpen)
-        {
-            DrawWindow();
+            global::UnityEngine.Debug.LogError("[BongoCatMod] Error setting up panel content: " + ex);
         }
     }
 
-    private void DrawWindow()
+    private static void CreateToggleRow(GameObject template, Transform parent, string label, string prefKey, bool initialVal, Action<bool> onChanged)
     {
-        var prevBg = GUI.backgroundColor;
-        var prevColor = GUI.color;
+        GameObject row = GameObject.Instantiate(template, parent);
+        row.name = "ModToggle_" + prefKey;
+        row.SetActive(true);
 
-        // Window background
-        GUI.backgroundColor = new Color(0.12f, 0.11f, 0.18f, 0.97f);
-        GUI.Box(_windowRect, "");
-
-        // Header banner
-        var headerRect = new Rect(_windowRect.x, _windowRect.y, _windowRect.width, 40f);
-        GUI.backgroundColor = new Color(0.22f, 0.19f, 0.32f);
-        GUI.Box(headerRect, "🐱 Bongo Cat Mod Manager v4.0");
-
-        // Close button in header
-        var closeHeaderRect = new Rect(_windowRect.x + _windowRect.width - 34f, _windowRect.y + 7f, 26f, 26f);
-        if (DrawButton(closeHeaderRect, "✕", new Color(0.75f, 0.25f, 0.35f)))
+        // Remove localization component to prevent text overwrite
+        LocalizeStringEvent[] localizers = row.GetComponentsInChildren<LocalizeStringEvent>(true);
+        foreach (var loc in localizers)
         {
-            _isOpen = false;
+            loc.enabled = false;
         }
 
-        // Tabs
-        float tabY = _windowRect.y + 48f;
-        float tabW = (_windowRect.width - 32f) / 3f;
-
-        if (DrawTab(new Rect(_windowRect.x + 16f, tabY, tabW, 30f), "Скины & Награды", _tab == 0)) _tab = 0;
-        if (DrawTab(new Rect(_windowRect.x + 16f + tabW, tabY, tabW, 30f), "Звуки & FPS", _tab == 1)) _tab = 1;
-        if (DrawTab(new Rect(_windowRect.x + 16f + tabW * 2f, tabY, tabW, 30f), "О моде", _tab == 2)) _tab = 2;
-
-        float contentY = tabY + 40f;
-
-        switch (_tab)
+        // Set row text
+        TMP_Text[] tmps = row.GetComponentsInChildren<TMP_Text>(true);
+        foreach (var tmp in tmps)
         {
-            case 0:
-                DrawCustomizationTab(contentY);
-                break;
-            case 1:
-                DrawSoundAndFpsTab(contentY);
-                break;
-            case 2:
-                DrawAboutTab(contentY);
-                break;
+            tmp.text = label;
         }
 
-        // Footer buttons
-        float footY = _windowRect.y + _windowRect.height - 45f;
-        var modsBtnRect = new Rect(_windowRect.x + 16f, footY, 180f, 32f);
-        if (DrawButton(modsBtnRect, "📁 Папка модов (Mods)", new Color(0.35f, 0.3f, 0.48f)))
+        Text[] texts = row.GetComponentsInChildren<Text>(true);
+        foreach (var txt in texts)
         {
-            OpenFolder(Path.Combine(Application.dataPath, "..", "Mods"));
+            txt.text = label;
         }
 
-        var closeBtnRect = new Rect(_windowRect.x + _windowRect.width - 120f, footY, 104f, 32f);
-        if (DrawButton(closeBtnRect, "✕ Закрыть", new Color(0.85f, 0.35f, 0.45f)))
+        // Configure PlayerPrefsToggle
+        PlayerPrefsToggle toggle = row.GetComponent<PlayerPrefsToggle>() ?? row.GetComponentInChildren<PlayerPrefsToggle>();
+        if (toggle != null)
         {
-            _isOpen = false;
-        }
+            FieldInfo? keyField = typeof(PlayerPrefsToggle).GetField("_playerPrefsKey", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (keyField != null)
+            {
+                keyField.SetValue(toggle, prefKey);
+            }
 
-        GUI.backgroundColor = prevBg;
-        GUI.color = prevColor;
-    }
+            toggle.OnToggleUpdated = new UnityEvent<bool>();
+            toggle.OnToggleUpdated.AddListener(val =>
+            {
+                PlayerPrefs.SetInt(prefKey, val ? 1 : 0);
+                PlayerPrefs.Save();
+                onChanged(val);
+            });
 
-    private void DrawCustomizationTab(float startY)
-    {
-        float x = _windowRect.x + 16f;
-        float w = _windowRect.width - 32f;
-        float y = startY;
-
-        GUI.Box(new Rect(x, y, w, 24f), "УПРАВЛЕНИЕ РАЗБЛОКИРОВКАМИ");
-        y += 30f;
-
-        DrawToggle(new Rect(x, y, w, 30f), "Разблокировать все скины и шапки", ref UnlockAllSkins, "BMOD_SKINS");
-        y += 34f;
-        DrawToggle(new Rect(x, y, w, 30f), "Сохранять экипировку при перезапуске", ref KeepEquipped, "BMOD_PERSIST");
-        y += 34f;
-        DrawToggle(new Rect(x, y, w, 30f), "Разблокировать боевой пропуск (PawPass)", ref UnlockPawPass, "BMOD_PAWPASS");
-        y += 34f;
-        DrawToggle(new Rect(x, y, w, 30f), "999 999 монет в копилке (Coin Stash)", ref InfiniteCoins, "BMOD_COINS");
-        y += 34f;
-        DrawToggle(new Rect(x, y, w, 30f), "Разблокировать скрытые промо-предметы", ref UnlockPromoItems, "BMOD_PROMO");
-        y += 42f;
-
-        GUI.Box(new Rect(x, y, w, 24f), "КАСТОМНЫЕ СКИНЫ");
-        y += 30f;
-
-        if (DrawButton(new Rect(x, y, w, 32f), "🎨 Открыть папку скинов (Mods/Skins)", new Color(0.55f, 0.38f, 0.88f)))
-        {
-            OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Skins"));
+            toggle.Value = PlayerPrefs.GetInt(prefKey, initialVal ? 1 : 0) == 1;
         }
     }
 
-    private void DrawSoundAndFpsTab(float startY)
+    private static void CreateActionButton(GameObject template, Transform parent, string label, Action onClick)
     {
-        float x = _windowRect.x + 16f;
-        float w = _windowRect.width - 32f;
-        float y = startY;
+        GameObject btnGo = GameObject.Instantiate(template, parent);
+        btnGo.name = "ModButton_" + label.GetHashCode();
+        btnGo.SetActive(true);
 
-        GUI.Box(new Rect(x, y, w, 24f), "КАСТОМНЫЕ ЗВУКИ ТАПОВ (SOUNDPACKS)");
-        y += 30f;
-
-        DrawToggle(new Rect(x, y, w, 30f), "Включить кастомные звуки из Mods/Sounds", ref CustomSounds, "BMOD_SOUNDS");
-        y += 34f;
-
-        if (DrawButton(new Rect(x, y, w, 32f), "🎵 Открыть папку звуков (Mods/Sounds)", new Color(0.45f, 0.35f, 0.75f)))
+        LocalizeStringEvent[] localizers = btnGo.GetComponentsInChildren<LocalizeStringEvent>(true);
+        foreach (var loc in localizers)
         {
-            OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Sounds"));
+            loc.enabled = false;
         }
-        y += 44f;
 
-        GUI.Box(new Rect(x, y, w, 24f), "ЛИМИТ ЧАСТОТЫ КАДРОВ (FPS)");
-        y += 30f;
-
-        float fpsBtnW = (w - 20f) / 6f;
-        if (DrawFpsButton(new Rect(x, y, fpsBtnW, 30f), "Авто", 0)) SetFps(0);
-        if (DrawFpsButton(new Rect(x + (fpsBtnW + 4f), y, fpsBtnW, 30f), "60", 60)) SetFps(60);
-        if (DrawFpsButton(new Rect(x + (fpsBtnW + 4f) * 2f, y, fpsBtnW, 30f), "120", 120)) SetFps(120);
-        if (DrawFpsButton(new Rect(x + (fpsBtnW + 4f) * 3f, y, fpsBtnW, 30f), "144", 144)) SetFps(144);
-        if (DrawFpsButton(new Rect(x + (fpsBtnW + 4f) * 4f, y, fpsBtnW, 30f), "240", 240)) SetFps(240);
-        if (DrawFpsButton(new Rect(x + (fpsBtnW + 4f) * 5f, y, fpsBtnW, 30f), "Макс", -1)) SetFps(-1);
-
-        y += 38f;
-        string currentFpsLabel = TargetFps switch
+        TMP_Text[] tmps = btnGo.GetComponentsInChildren<TMP_Text>(true);
+        foreach (var tmp in tmps)
         {
-            0 => "По умолчанию (вертикальная синхронизация)",
-            -1 => "Без ограничений (Максимум)",
-            _ => $"{TargetFps} FPS"
-        };
-        GUI.Label(new Rect(x, y, w, 24f), $"Текущий лимит: {currentFpsLabel}");
-    }
-
-    private void DrawAboutTab(float startY)
-    {
-        float x = _windowRect.x + 16f;
-        float w = _windowRect.width - 32f;
-        float y = startY;
-
-        GUI.Box(new Rect(x, y, w, 24f), "ИНФОРМАЦИЯ О МОДЕ");
-        y += 32f;
-
-        GUI.Label(new Rect(x, y, w, 24f), "🐱 Bongo Cat In-Game Mod Manager v4.0");
-        y += 24f;
-        GUI.Label(new Rect(x, y, w, 24f), "• Меню вызывается клавишами: F1, Insert или F8.");
-        y += 24f;
-        GUI.Label(new Rect(x, y, w, 24f), "• Все параметры сохраняются автоматически в реестр.");
-        y += 24f;
-        GUI.Label(new Rect(x, y, w, 24f), "• Скины и шапки помещайте в папку: Mods/Skins/");
-        y += 24f;
-        GUI.Label(new Rect(x, y, w, 24f), "• Звуки кликов помещайте в папку: Mods/Sounds/");
-        y += 32f;
-        GUI.Label(new Rect(x, y, w, 24f), "Разработчик: etfte");
-        y += 24f;
-        GUI.Label(new Rect(x, y, w, 24f), "GitHub: https://github.com/etfte/BongoCatPatcher");
-    }
-
-    private bool DrawButton(Rect rect, string text, Color bg)
-    {
-        bool isHover = rect.Contains(Event.current.mousePosition);
-        var old = GUI.backgroundColor;
-        GUI.backgroundColor = isHover ? Color.Lerp(bg, Color.white, 0.25f) : bg;
-
-        GUI.Box(rect, text);
-        GUI.backgroundColor = old;
-
-        if (Event.current.type == EventType.MouseDown && isHover && Event.current.button == 0)
-        {
-            Event.current.Use();
-            return true;
+            tmp.text = label;
         }
-        return false;
-    }
 
-    private bool DrawTab(Rect rect, string title, bool isActive)
-    {
-        Color c = isActive ? new Color(0.66f, 0.44f, 0.98f) : new Color(0.24f, 0.21f, 0.34f);
-        return DrawButton(rect, title, c);
-    }
-
-    private void DrawToggle(Rect rect, string title, ref bool value, string prefKey)
-    {
-        string label = (value ? "[✔] " : "[   ] ") + title;
-        Color c = value ? new Color(0.18f, 0.75f, 0.45f) : new Color(0.38f, 0.36f, 0.48f);
-
-        if (DrawButton(rect, label, c))
+        Text[] texts = btnGo.GetComponentsInChildren<Text>(true);
+        foreach (var txt in texts)
         {
-            value = !value;
-            PlayerPrefs.SetInt(prefKey, value ? 1 : 0);
-            PlayerPrefs.Save();
+            txt.text = label;
+        }
+
+        Button btn = btnGo.GetComponent<Button>() ?? btnGo.GetComponentInChildren<Button>();
+        if (btn != null)
+        {
+            btn.onClick = new Button.ButtonClickedEvent();
+            btn.onClick.AddListener(new UnityAction(onClick));
         }
     }
 
-    private bool DrawFpsButton(Rect rect, string label, int fps)
+    private static void LoadSettings()
     {
-        bool isCurrent = TargetFps == fps;
-        Color c = isCurrent ? new Color(0.18f, 0.75f, 0.45f) : new Color(0.25f, 0.22f, 0.35f);
-        return DrawButton(rect, label, c);
-    }
-
-    private void SetFps(int fps)
-    {
-        TargetFps = fps;
-        PlayerPrefs.SetInt("BMOD_FPS", TargetFps);
-        PlayerPrefs.Save();
-        ApplyFpsLimit();
+        UnlockAllSkins = PlayerPrefs.GetInt("BMOD_SKINS", 1) == 1;
+        KeepEquipped = PlayerPrefs.GetInt("BMOD_PERSIST", 1) == 1;
+        UnlockPawPass = PlayerPrefs.GetInt("BMOD_PAWPASS", 1) == 1;
+        InfiniteCoins = PlayerPrefs.GetInt("BMOD_COINS", 1) == 1;
+        UnlockPromoItems = PlayerPrefs.GetInt("BMOD_PROMO", 1) == 1;
+        CustomSounds = PlayerPrefs.GetInt("BMOD_SOUNDS", 0) == 1;
+        TargetFps = PlayerPrefs.GetInt("BMOD_FPS", 0);
     }
 
     private static void ApplyFpsLimit()
@@ -293,17 +308,6 @@ public class ModMenu : MonoBehaviour
             QualitySettings.vSyncCount = 1;
             Application.targetFrameRate = -1;
         }
-    }
-
-    private static void LoadSettings()
-    {
-        UnlockAllSkins = PlayerPrefs.GetInt("BMOD_SKINS", 1) == 1;
-        KeepEquipped = PlayerPrefs.GetInt("BMOD_PERSIST", 1) == 1;
-        UnlockPawPass = PlayerPrefs.GetInt("BMOD_PAWPASS", 1) == 1;
-        InfiniteCoins = PlayerPrefs.GetInt("BMOD_COINS", 1) == 1;
-        UnlockPromoItems = PlayerPrefs.GetInt("BMOD_PROMO", 1) == 1;
-        CustomSounds = PlayerPrefs.GetInt("BMOD_SOUNDS", 0) == 1;
-        TargetFps = PlayerPrefs.GetInt("BMOD_FPS", 0);
     }
 
     private static void OpenFolder(string path)

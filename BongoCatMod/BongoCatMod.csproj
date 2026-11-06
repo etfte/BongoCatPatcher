@@ -12,24 +12,28 @@
       <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.IMGUIModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.AudioModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityEngine.ImageConversionModule">
-      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.ImageConversionModule.dll</HintPath>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.Localization">
+      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\Unity.Localization.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>D:\SteamLibrary\steamapps\common\BongoCat\BongoCat_Data\Managed\Assembly-CSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

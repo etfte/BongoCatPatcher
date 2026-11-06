@@ -201,6 +201,9 @@ public static class PatcherCore
 
         // Import ModMenu symbols
         var initMethodRef = module.ImportReference(modMenuType.Methods.First(m => m.Name == "Init"));
+        var injectTabMethod = modMenuType.Methods.FirstOrDefault(m => m.Name == "InjectIntoMenuTabs");
+        var injectTabMethodRef = injectTabMethod != null ? module.ImportReference(injectTabMethod) : null;
+
         var unlockSkinsFieldRef = module.ImportReference(modMenuType.Fields.First(f => f.Name == "UnlockAllSkins"));
         var keepEquippedFieldRef = module.ImportReference(modMenuType.Fields.First(f => f.Name == "KeepEquipped"));
         var unlockPawPassFieldRef = module.ImportReference(modMenuType.Fields.First(f => f.Name == "UnlockPawPass"));
@@ -219,12 +222,31 @@ public static class PatcherCore
                     var il = awake.Body.GetILProcessor();
                     var lastRet = awake.Body.Instructions.Last(i => i.OpCode == OpCodes.Ret);
                     il.InsertBefore(lastRet, il.Create(OpCodes.Call, initMethodRef));
-                    log?.Invoke("  [+] Cat.Awake -> Внедрена инициализация внутриигрового меню ModMenu");
+                    log?.Invoke("  [+] Cat.Awake -> Внедрена фоновая инициализация ModMenu");
                 }
             }
         }
 
-        // 2. SteamItemRuntime: IsOwned -> ModMenu.UnlockAllSkins
+        // 2. MenuTabs.Awake: Inject ModMenu.InjectIntoMenuTabs(this) - native menu tab!
+        var menuTabsType = module.Types.FirstOrDefault(t => t.FullName == "MenuTabs");
+        if (menuTabsType != null && injectTabMethodRef != null)
+        {
+            var awake = menuTabsType.Methods.FirstOrDefault(m => m.Name == "Awake");
+            if (awake != null)
+            {
+                bool alreadyInjected = awake.Body.Instructions.Any(i => i.OpCode == OpCodes.Call && i.Operand?.ToString()?.Contains("InjectIntoMenuTabs") == true);
+                if (!alreadyInjected)
+                {
+                    var il = awake.Body.GetILProcessor();
+                    var lastRet = awake.Body.Instructions.Last(i => i.OpCode == OpCodes.Ret);
+                    il.InsertBefore(lastRet, il.Create(OpCodes.Ldarg_0));
+                    il.InsertBefore(lastRet, il.Create(OpCodes.Call, injectTabMethodRef));
+                    log?.Invoke("  [+] MenuTabs.Awake -> Внедрена кнопка отдельной вкладки мода в меню игры (без биндов)");
+                }
+            }
+        }
+
+        // 3. SteamItemRuntime: IsOwned -> ModMenu.UnlockAllSkins
         var steamItemRuntime = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.SteamItemRuntime");
         if (steamItemRuntime != null)
         {
@@ -248,7 +270,7 @@ public static class PatcherCore
             }
         }
 
-        // 3. ItemCollection: IsRevealed -> true
+        // 4. ItemCollection: IsRevealed -> true
         var itemCollection = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.ItemCollection");
         if (itemCollection != null)
         {
@@ -260,7 +282,7 @@ public static class PatcherCore
             }
         }
 
-        // 4. CatCosmetics: EquipItem & Validate
+        // 5. CatCosmetics: EquipItem & Validate
         var catCosmetics = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.CatCosmetics");
         if (catCosmetics != null)
         {
@@ -290,7 +312,7 @@ public static class PatcherCore
             }
         }
 
-        // 5. EmoteDonut: Validate -> return;
+        // 6. EmoteDonut: Validate -> return;
         var emoteDonut = module.Types.FirstOrDefault(t => t.FullName == "EmoteDonut");
         if (emoteDonut != null)
         {
@@ -306,7 +328,7 @@ public static class PatcherCore
             }
         }
 
-        // 6. PawPass: HasFreePass & HasPremiumPass -> ModMenu.UnlockPawPass
+        // 7. PawPass: HasFreePass & HasPremiumPass -> ModMenu.UnlockPawPass
         var pawPassEntity = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.PawPass.PawPassEntity");
         if (pawPassEntity != null)
         {
@@ -328,10 +350,10 @@ public static class PatcherCore
                 il.Emit(OpCodes.Ret);
             }
 
-            log?.Invoke("  [+] PawPassEntity -> привязка к тумблеру ModMenu.UnlockPawPass (Free & Premium)");
+            log?.Invoke("  [+] PawPassEntity -> привязка к тумблеру ModMenu.UnlockPawPass");
         }
 
-        // 7. CoinStash: Refresh -> 999 999 coins
+        // 8. CoinStash: Refresh -> 999 999 coins
         var coinStash = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.CoinStash");
         if (coinStash != null)
         {
@@ -360,7 +382,6 @@ public static class PatcherCore
             assembly.Write();
             log?.Invoke("[V] Сборка Assembly-CSharp.dll успешно сохранена!");
 
-            // Initialize Mods directories
             EnsureDirectories(assemblyPath, log);
 
             return true;
@@ -376,7 +397,6 @@ public static class PatcherCore
     {
         try
         {
-            // First check embedded resource
             var asm = Assembly.GetExecutingAssembly();
             var resourceName = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("BongoCatMod.dll", StringComparison.OrdinalIgnoreCase));
             if (resourceName != null)
@@ -388,7 +408,6 @@ public static class PatcherCore
                 return;
             }
 
-            // Fallback to local file next to patcher
             string localFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "BongoCatMod.dll");
             if (File.Exists(localFile))
             {
@@ -429,7 +448,6 @@ public static class PatcherCore
                 curr = next;
             }
 
-            // flag = !ModMenu.KeepEquipped
             il.InsertBefore(stloc1, il.Create(OpCodes.Ldsfld, keepEquippedField));
             il.InsertBefore(stloc1, il.Create(OpCodes.Ldc_I4_0));
             il.InsertBefore(stloc1, il.Create(OpCodes.Ceq));
@@ -484,7 +502,7 @@ public static class PatcherCore
 
             if (!CheckIfPatched(assemblyPath))
             {
-                log("[*] Сборка вернулась к оригинальной. Автоматическое применение патча v4.0...");
+                log("[*] Сборка вернулась к оригинальной. Автоматическое применение патча...");
                 if (ApplyPatch(assemblyPath, log))
                 {
                     lastPatchTime = DateTime.Now;

@@ -13,6 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="BongoCatMod\**" />
+    <None Include="BongoCatMod\**" />
     <EmbeddedResource Include="BongoCatMod.dll" />
   </ItemGroup>
 
