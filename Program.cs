@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -12,10 +13,29 @@ class Program
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
+        // 1. Steam Launch Pre-Hook: Fast & Quiet
+        if (args.Length > 0 && args[0].Equals("--steam-launch", StringComparison.OrdinalIgnoreCase))
+        {
+            string? gameExe = args.Length > 1 ? args[1] : null;
+            string[] extraArgs = args.Length > 2 ? args.Skip(2).ToArray() : Array.Empty<string>();
+
+            Action<string> log = msg =>
+            {
+                try { Console.WriteLine(msg); } catch { }
+            };
+
+            bool launched = PatcherCore.LaunchGameWithAutoUpdate(gameExe, extraArgs, log);
+            return launched ? 0 : 1;
+        }
+
         string? customPath = null;
         bool isRestore = false;
         bool isStatusCheck = false;
         bool isWatch = false;
+        bool isLaunch = false;
+        bool isInstallSteamHook = false;
+        bool isRemoveSteamHook = false;
+        bool isUpdateCheck = false;
         bool forceCli = false;
         bool forceGui = false;
 
@@ -33,6 +53,10 @@ class Program
             else if (arg is "-w" or "--watch") isWatch = true;
             else if (arg is "-r" or "--restore" or "--uninstall") isRestore = true;
             else if (arg is "-s" or "--status" or "--check") isStatusCheck = true;
+            else if (arg is "-l" or "--launch") isLaunch = true;
+            else if (arg is "--install-steam-hook") isInstallSteamHook = true;
+            else if (arg is "--remove-steam-hook") isRemoveSteamHook = true;
+            else if (arg is "--update-check") isUpdateCheck = true;
             else if (arg is "-p" or "--path")
             {
                 if (i + 1 < args.Length)
@@ -60,7 +84,7 @@ class Program
 
         PrintBanner();
 
-        Action<string> log = msg =>
+        Action<string> logCli = msg =>
         {
             if (msg.StartsWith("[-]")) Console.ForegroundColor = ConsoleColor.Red;
             else if (msg.StartsWith("[+]") || msg.StartsWith("[V]")) Console.ForegroundColor = ConsoleColor.Green;
@@ -72,11 +96,34 @@ class Program
             Console.ResetColor();
         };
 
-        string? assemblyPath = PatcherCore.ResolveAssemblyPath(customPath, log);
+        if (isUpdateCheck)
+        {
+            GitHubUpdater.CheckAndPullUpdatesAsync(logCli, 5).GetAwaiter().GetResult();
+            return 0;
+        }
+
+        if (isInstallSteamHook)
+        {
+            string currentExe = Environment.ProcessPath ?? Application.ExecutablePath;
+            return SteamIntegration.InstallSteamLaunchHook(currentExe, logCli) ? 0 : 1;
+        }
+
+        if (isRemoveSteamHook)
+        {
+            return SteamIntegration.RemoveSteamLaunchHook(logCli) ? 0 : 1;
+        }
+
+        if (isLaunch)
+        {
+            string? gameExe = PatcherCore.ResolveGameExePath(customPath, logCli);
+            return PatcherCore.LaunchGameWithAutoUpdate(gameExe, null, logCli) ? 0 : 1;
+        }
+
+        string? assemblyPath = PatcherCore.ResolveAssemblyPath(customPath, logCli);
         if (assemblyPath == null || !File.Exists(assemblyPath))
         {
-            log("[-] Не удалось найти файл Assembly-CSharp.dll!");
-            log("    Укажите путь вручную с помощью параметра: --path \"<путь к папке BongoCat>\"");
+            logCli("[-] Не удалось найти файл Assembly-CSharp.dll!");
+            logCli("    Укажите путь вручную с помощью параметра: --path \"<путь к папке BongoCat>\"");
             return 1;
         }
 
@@ -85,13 +132,15 @@ class Program
         if (isStatusCheck)
         {
             Console.WriteLine();
-            log($"[STATUS] Сборка: {(isPatched ? "ПРОПАТЧЕНА (все скины, персистентность, PawPass и 999 999 монет активны)" : "ОРИГИНАЛЬНАЯ / ЧИСТАЯ")}");
+            logCli($"[STATUS] Сборка: {(isPatched ? "ПРОПАТЧЕНА (все скины, персистентность, PawPass и 999 999 монет активны)" : "ОРИГИНАЛЬНАЯ / ЧИСТАЯ")}");
+            bool hookInstalled = SteamIntegration.IsSteamHookInstalled();
+            logCli($"[STATUS] Steam Launch Hook: {(hookInstalled ? "АКТИВЕН (авто-проверка при запуске из Steam включена)" : "НЕ АКТИВЕН")}");
             return 0;
         }
 
         if (isRestore)
         {
-            return PatcherCore.Restore(assemblyPath, log) ? 0 : 1;
+            return PatcherCore.Restore(assemblyPath, logCli) ? 0 : 1;
         }
 
         if (isWatch)
@@ -103,22 +152,22 @@ class Program
                 cts.Cancel();
             };
 
-            log("[*] Запуск в режиме защиты от обновлений Steam (нажмите Ctrl+C для выхода)...");
-            PatcherCore.StartWatcher(assemblyPath, log, cts.Token);
+            logCli("[*] Запуск в режиме защиты от обновлений Steam (нажмите Ctrl+C для выхода)...");
+            PatcherCore.StartWatcher(assemblyPath, logCli, cts.Token);
             return 0;
         }
 
         // Default CLI action: Apply patch
         if (isPatched)
         {
-            log("[!] Сборка уже пропатчена. Применяем актуальное обновление патчей...");
+            logCli("[!] Сборка уже пропатчена. Применяем актуальное обновление патчей...");
         }
 
-        bool success = PatcherCore.ApplyPatch(assemblyPath, log);
+        bool success = PatcherCore.ApplyPatch(assemblyPath, logCli);
         if (success)
         {
             Console.WriteLine();
-            log("[V] Полный патч v3.0 успешно применён!");
+            logCli("[V] Полный патч v3.1 успешно применён!");
             return 0;
         }
 
@@ -130,8 +179,8 @@ class Program
         Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine(@"
 =====================================================
-          Bongo Cat Assembly Patcher (v3.0)          
-   Full Unlock, Persistence, PawPass, GUI & Watcher  
+          Bongo Cat Assembly Patcher (v3.1)          
+   Auto-Update, Persistence, PawPass, Steam Hook     
 =====================================================
 ");
         Console.ResetColor();
@@ -142,19 +191,22 @@ class Program
         Console.WriteLine("Использование: BongoCatPatcher [ОПЦИИ]");
         Console.WriteLine();
         Console.WriteLine("Опции:");
-        Console.WriteLine("  --gui, -g            Открыть графический интерфейс (по умолчанию при даблклике)");
-        Console.WriteLine("  --cli                Принудительный режим командной строки");
-        Console.WriteLine("  -p, --path <путь>    Указать путь к папке игры или к Assembly-CSharp.dll");
-        Console.WriteLine("  -s, --status         Проверить статус сборки");
-        Console.WriteLine("  -r, --restore        Восстановить оригинальную сборку из резервной копии");
-        Console.WriteLine("  -w, --watch          Запустить Steam Update Guardian (авто-патч при обновлениях)");
-        Console.WriteLine("  -h, --help           Показать эту справку");
+        Console.WriteLine("  --gui, -g                 Открыть графический интерфейс (по умолчанию при даблклике)");
+        Console.WriteLine("  --cli                     Принудительный режим командной строки");
+        Console.WriteLine("  -l, --launch              Запустить Bongo Cat с авто-проверкой обновлений игры");
+        Console.WriteLine("  --steam-launch <exe>      Режим авто-проверки и запуска для Steam Launch Options");
+        Console.WriteLine("  --install-steam-hook      Автоматически привязать авто-патч к кнопке 'Играть' в Steam");
+        Console.WriteLine("  --remove-steam-hook       Удалить привязку авто-патча из Steam");
+        Console.WriteLine("  --update-check            Проверить наличие обновлений патчера на GitHub");
+        Console.WriteLine("  -p, --path <путь>         Указать путь к папке игры или к Assembly-CSharp.dll");
+        Console.WriteLine("  -s, --status              Проверить статус сборки и хука Steam");
+        Console.WriteLine("  -r, --restore             Восстановить оригинальную сборку из резервной копии");
+        Console.WriteLine("  -w, --watch               Запустить Steam Update Guardian (мониторинг обновлений)");
+        Console.WriteLine("  -h, --help                Показать эту справку");
         Console.WriteLine();
         Console.WriteLine("Примеры:");
-        Console.WriteLine("  BongoCatPatcher                     # Открыть GUI (или запустить с --cli для консоли)");
-        Console.WriteLine("  BongoCatPatcher --cli               # Применить патч в консольном режиме");
-        Console.WriteLine("  BongoCatPatcher --cli --status      # Проверить статус сборки");
-        Console.WriteLine("  BongoCatPatcher --cli --watch       # Фоновый мониторинг обновлений Steam");
-        Console.WriteLine("  BongoCatPatcher --cli --restore     # Откатить изменения");
+        Console.WriteLine("  BongoCatPatcher --launch              # Запустить игру с проверкой обновлений");
+        Console.WriteLine("  BongoCatPatcher --install-steam-hook  # Настроить авто-патч при старте из Steam");
+        Console.WriteLine("  BongoCatPatcher --cli --status       # Проверить статус сборки");
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -12,6 +13,56 @@ namespace BongoCatPatcher;
 
 public static class PatcherCore
 {
+    public static string? ResolveGameExePath(string? customPath = null, Action<string>? log = null)
+    {
+        if (!string.IsNullOrWhiteSpace(customPath))
+        {
+            string clean = customPath.Trim('\"', '\'');
+            if (File.Exists(clean) && Path.GetFileName(clean).Equals("BongoCat.exe", StringComparison.OrdinalIgnoreCase))
+                return clean;
+            if (File.Exists(clean) && Path.GetFileName(clean).Equals("Assembly-CSharp.dll", StringComparison.OrdinalIgnoreCase))
+            {
+                string exeCandidate = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(clean)!, "..", "..", "BongoCat.exe"));
+                if (File.Exists(exeCandidate)) return exeCandidate;
+            }
+            if (Directory.Exists(clean))
+            {
+                string inRoot = Path.Combine(clean, "BongoCat.exe");
+                if (File.Exists(inRoot)) return inRoot;
+                string inSub = Path.Combine(clean, "BongoCat", "BongoCat.exe");
+                if (File.Exists(inSub)) return inSub;
+            }
+        }
+
+        var candidates = GetSteamLibraryFolders();
+        foreach (var library in candidates)
+        {
+            string checkPath = Path.Combine(library, "steamapps", "common", "BongoCat", "BongoCat.exe");
+            if (File.Exists(checkPath))
+            {
+                return checkPath;
+            }
+        }
+
+        string[] defaultPaths =
+        {
+            @"D:\SteamLibrary\steamapps\common\BongoCat\BongoCat.exe",
+            @"C:\Program Files (x86)\Steam\steamapps\common\BongoCat\BongoCat.exe",
+            @"C:\SteamLibrary\steamapps\common\BongoCat\BongoCat.exe",
+            @"E:\SteamLibrary\steamapps\common\BongoCat\BongoCat.exe"
+        };
+
+        foreach (var path in defaultPaths)
+        {
+            if (File.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return null;
+    }
+
     public static string? ResolveAssemblyPath(string? customPath = null, Action<string>? log = null)
     {
         if (!string.IsNullOrWhiteSpace(customPath))
@@ -390,6 +441,69 @@ public static class PatcherCore
         }
     }
 
+    public static bool LaunchGameWithAutoUpdate(string? gameExePath, string[]? extraArgs, Action<string>? log)
+    {
+        if (string.IsNullOrEmpty(gameExePath) || !File.Exists(gameExePath))
+        {
+            gameExePath = ResolveGameExePath(null, log);
+        }
+
+        if (string.IsNullOrEmpty(gameExePath) || !File.Exists(gameExePath))
+        {
+            log?.Invoke("[-] Не удалось найти исполнимый файл BongoCat.exe!");
+            return false;
+        }
+
+        string assemblyPath = Path.Combine(Path.GetDirectoryName(gameExePath)!, "BongoCat_Data", "Managed", "Assembly-CSharp.dll");
+        if (File.Exists(assemblyPath))
+        {
+            bool isPatched = CheckIfPatched(assemblyPath);
+            if (!isPatched)
+            {
+                log?.Invoke("[!] Замечено обновление игры Steam. Выполняется автоматическая адаптация патча под новую версию...");
+
+                // Pull latest updates from GitHub if available (2 sec timeout)
+                try
+                {
+                    GitHubUpdater.CheckAndPullUpdatesAsync(log, 2).GetAwaiter().GetResult();
+                }
+                catch { }
+
+                // Apply patch to the updated game
+                if (ApplyPatch(assemblyPath, log))
+                {
+                    log?.Invoke("[V] Патч успешно применён к обновлённой версии игры!");
+                }
+                else
+                {
+                    log?.Invoke("[-] Предупреждение: авто-патч завершился с ошибкой, запуск оригинальной игры...");
+                }
+            }
+            else
+            {
+                log?.Invoke("[V] Сборка Bongo Cat актуальна и пропатчена.");
+            }
+        }
+
+        log?.Invoke($"[>] Запуск игры: {gameExePath}");
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = gameExePath,
+                Arguments = extraArgs != null && extraArgs.Length > 0 ? string.Join(" ", extraArgs) : "",
+                WorkingDirectory = Path.GetDirectoryName(gameExePath)
+            };
+            Process.Start(psi);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log?.Invoke($"[-] Ошибка запуска игры: {ex.Message}");
+            return false;
+        }
+    }
+
     public static void StartWatcher(string assemblyPath, Action<string> log, CancellationToken cancellationToken)
     {
         string managedDir = Path.GetDirectoryName(assemblyPath)!;
@@ -411,11 +525,17 @@ public static class PatcherCore
 
             if (!CheckIfPatched(assemblyPath))
             {
-                log("[*] Сборка вернулась к оригинальной. Автоматическое применение патча...");
+                log("[*] Сборка вернулась к оригинальной. Проверка обновлений и повторный патч...");
+                try
+                {
+                    GitHubUpdater.CheckAndPullUpdatesAsync(log, 3).GetAwaiter().GetResult();
+                }
+                catch { }
+
                 if (ApplyPatch(assemblyPath, log))
                 {
                     lastPatchTime = DateTime.Now;
-                    log("[V] Авто-патч успешно завершён!");
+                    log("[V] Авто-патч под новую версию игры успешно завершён!");
                 }
             }
             else
