@@ -17,7 +17,6 @@ public class PatcherForm : Form
     private Button btnPatch = null!;
     private Button btnRestore = null!;
     private Button btnSteamHook = null!;
-    private Button btnCheckUpdates = null!;
     private Button btnMods = null!;
     private Button btnGameDir = null!;
     private Button btnWatch = null!;
@@ -33,9 +32,9 @@ public class PatcherForm : Form
 
     private void InitializeComponents()
     {
-        Text = "Bongo Cat Auto-Patcher & Updater v3.1";
-        Size = new Size(820, 640);
-        MinimumSize = new Size(740, 560);
+        Text = "Bongo Cat Assembly Patcher";
+        Size = new Size(820, 620);
+        MinimumSize = new Size(740, 540);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(24, 24, 27);
         ForeColor = Color.FromArgb(244, 244, 245);
@@ -45,14 +44,14 @@ public class PatcherForm : Form
         var pnlHeader = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 90,
+            Height = 85,
             BackColor = Color.FromArgb(39, 39, 42),
             Padding = new Padding(16, 12, 16, 12)
         };
 
         var lblTitle = new Label
         {
-            Text = "🐱 Bongo Cat Auto-Patcher & Updater v3.1",
+            Text = "🐱 Bongo Cat Assembly Patcher",
             Font = new Font("Segoe UI", 15f, FontStyle.Bold),
             ForeColor = Color.FromArgb(167, 139, 250),
             AutoSize = true,
@@ -61,7 +60,7 @@ public class PatcherForm : Form
 
         var lblSubtitle = new Label
         {
-            Text = "Авто-проверка обновлений Steam, самообновление с GitHub, разблокировка скинов, PawPass и 999k монет",
+            Text = "Чистая разблокировка всех скинов, постоянная экипировка и PawPass (без накрутки монет)",
             Font = new Font("Segoe UI", 9f),
             ForeColor = Color.FromArgb(161, 161, 170),
             AutoSize = true,
@@ -133,25 +132,22 @@ public class PatcherForm : Form
         var pnlButtons = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 96,
+            Height = 90,
             Padding = new Padding(16, 4, 16, 4),
             AutoScroll = false
         };
 
-        btnLaunch = CreateButton("🎮 Запустить с авто-проверкой", Color.FromArgb(16, 185, 129), 235, 36);
+        btnLaunch = CreateButton("🎮 Запустить Bongo Cat", Color.FromArgb(16, 185, 129), 200, 36);
         btnLaunch.Click += OnLaunchClicked;
-
-        btnSteamHook = CreateButton("⚡ Авто-патч в Steam", Color.FromArgb(139, 92, 246), 180, 36);
-        btnSteamHook.Click += OnToggleSteamHookClicked;
-
-        btnCheckUpdates = CreateButton("🌐 Обновления GitHub", Color.FromArgb(59, 130, 246), 175, 36);
-        btnCheckUpdates.Click += OnCheckUpdatesClicked;
 
         btnPatch = CreateButton("🚀 Применить патч", Color.FromArgb(34, 197, 94), 160, 36);
         btnPatch.Click += OnPatchClicked;
 
         btnRestore = CreateButton("🔄 Восстановить", Color.FromArgb(239, 68, 68), 140, 36);
         btnRestore.Click += OnRestoreClicked;
+
+        btnSteamHook = CreateButton("⚡ Интеграция в Steam", Color.FromArgb(139, 92, 246), 180, 36);
+        btnSteamHook.Click += OnToggleSteamHookClicked;
 
         btnWatch = CreateButton("🛡️ Защита Steam", Color.FromArgb(107, 114, 128), 150, 36);
         btnWatch.Click += OnToggleWatcherClicked;
@@ -164,8 +160,8 @@ public class PatcherForm : Form
 
         pnlButtons.Controls.AddRange(new Control[]
         {
-            btnLaunch, btnSteamHook, btnCheckUpdates, btnPatch,
-            btnRestore, btnWatch, btnMods, btnGameDir
+            btnLaunch, btnPatch, btnRestore, btnSteamHook,
+            btnWatch, btnMods, btnGameDir
         });
 
         // Log section
@@ -258,7 +254,7 @@ public class PatcherForm : Form
         {
             lblStatus.Text = "✔ ПРОПАТЧЕНА";
             lblStatus.BackColor = Color.FromArgb(16, 185, 129);
-            if (announce) Log("[i] Статус: Сборка пропатчена (все скины, персистентность, PawPass и 999k монет активны).");
+            if (announce) Log("[i] Статус: Сборка пропатчена (все скины, постоянная экипировка и PawPass активны).");
         }
         else
         {
@@ -281,17 +277,17 @@ public class PatcherForm : Form
         else
         {
             btnSteamHook.BackColor = Color.FromArgb(139, 92, 246);
-            btnSteamHook.Text = "⚡ Авто-патч в Steam";
+            btnSteamHook.Text = "⚡ Интеграция в Steam";
         }
     }
 
     private void OnLaunchClicked(object? sender, EventArgs e)
     {
-        Log("Запуск Bongo Cat с авто-проверкой обновлений...");
+        Log("Запуск Bongo Cat...");
         string? exePath = PatcherCore.ResolveGameExePath(currentAssemblyPath, Log);
         Task.Run(() =>
         {
-            bool ok = PatcherCore.LaunchGameWithAutoUpdate(exePath, null, Log);
+            bool ok = PatcherCore.LaunchGame(exePath, null, Log);
             if (ok)
             {
                 Invoke(() => UpdateStatus());
@@ -307,7 +303,7 @@ public class PatcherForm : Form
         if (hooked)
         {
             var res = MessageBox.Show(
-                "Параметр авто-запуска в Steam уже установлен.\n\nЖелаете отключить авто-проверку при запуске из Steam?",
+                "Параметр запуска в Steam уже установлен.\n\nЖелаете отключить интеграцию в Steam?",
                 "Steam Launch Hook",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
@@ -327,25 +323,13 @@ public class PatcherForm : Form
                 string cmd = SteamIntegration.GetRecommendedLaunchOption(currentExe);
                 try { Clipboard.SetText(cmd); } catch { }
                 MessageBox.Show(
-                    "Параметр авто-патча успешно привязан к Bongo Cat в Steam!\n\n" +
-                    "Теперь при нажатии «Играть» в Steam игра автоматически проверяется на обновления и пропатчивается перед стартом.\n\n" +
+                    "Параметр запуска успешно привязан к Bongo Cat в Steam!\n\n" +
                     $"Параметр запуска: {cmd}\n(также скопирован в буфер обмена)",
                     "Успех",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
         }
-    }
-
-    private void OnCheckUpdatesClicked(object? sender, EventArgs e)
-    {
-        btnCheckUpdates.Enabled = false;
-        Log("Проверка актуальных релизов на GitHub...");
-        Task.Run(async () =>
-        {
-            await GitHubUpdater.CheckAndPullUpdatesAsync(Log, 5);
-            Invoke(() => btnCheckUpdates.Enabled = true);
-        });
     }
 
     private void OnBrowseClicked(object? sender, EventArgs e)
@@ -378,7 +362,7 @@ public class PatcherForm : Form
         if (ok)
         {
             Log("[V] Патч успешно завершён!");
-            MessageBox.Show("Патч успешно применён!\n\nВсе скины, персистентность, PawPass и 999 999 монет активированы.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show("Патч успешно применён!\n\nВсе скины, аксессуары и PawPass разблокированы (баланс монет не изменён).", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
