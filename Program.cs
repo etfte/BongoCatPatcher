@@ -85,7 +85,7 @@ class Program
         if (isStatusCheck)
         {
             Console.WriteLine();
-            log($"[STATUS] Сборка: {(isPatched ? "ПРОПАТЧЕНА (Вкладка мода в меню игры, скины, персистентность, PawPass и 999 999 монет активны)" : "ОРИГИНАЛЬНАЯ / ЧИСТАЯ")}");
+            log($"[STATUS] Сборка: {(isPatched ? "ПРОПАТЧЕНА (все скины, персистентность, PawPass и 999 999 монет активны)" : "ОРИГИНАЛЬНАЯ / ЧИСТАЯ")}");
             return 0;
         }
 
@@ -111,15 +111,14 @@ class Program
         // Default CLI action: Apply patch
         if (isPatched)
         {
-            log("[!] Сборка уже пропатчена. Применяем актуальное обновление патчей v4.0...");
+            log("[!] Сборка уже пропатчена. Применяем актуальное обновление патчей...");
         }
 
         bool success = PatcherCore.ApplyPatch(assemblyPath, log);
         if (success)
         {
             Console.WriteLine();
-            log("[V] Полный патч v4.1 успешно применён!");
-            log("[i] В игре доступны настройки мода: кнопка рядом с кубиком рандомайзера и отдельная вкладка в меню игры (без биндов)!");
+            log("[V] Полный патч v3.0 успешно применён!");
             return 0;
         }
 
@@ -131,8 +130,8 @@ class Program
         Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine(@"
 =====================================================
-          Bongo Cat Assembly Patcher (v4.0)          
-   In-Game Mod Menu, Persistence, PawPass, Soundpacks
+          Bongo Cat Assembly Patcher (v3.0)          
+   Full Unlock, Persistence, PawPass, GUI & Watcher  
 =====================================================
 ");
         Console.ResetColor();
@@ -143,8 +142,8 @@ class Program
         Console.WriteLine("Использование: BongoCatPatcher [ОПЦИИ]");
         Console.WriteLine();
         Console.WriteLine("Опции:");
-        Console.WriteLine("  --gui, -g            Открыть графический интерфейс (по умолчанию при двойном клике)");
-        Console.WriteLine("  --cli                Принудительный запуск в режиме командной строки");
+        Console.WriteLine("  --gui, -g            Открыть графический интерфейс (по умолчанию при даблклике)");
+        Console.WriteLine("  --cli                Принудительный режим командной строки");
         Console.WriteLine("  -p, --path <путь>    Указать путь к папке игры или к Assembly-CSharp.dll");
         Console.WriteLine("  -s, --status         Проверить статус сборки");
         Console.WriteLine("  -r, --restore        Восстановить оригинальную сборку из резервной копии");

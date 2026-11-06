@@ -17,12 +17,8 @@ public class PatcherForm : Form
     private Button btnRestore = null!;
     private Button btnCheck = null!;
     private Button btnMods = null!;
-    private Button btnSounds = null!;
     private Button btnGameDir = null!;
     private Button btnWatch = null!;
-
-    private NotifyIcon trayIcon = null!;
-    private ContextMenuStrip trayMenu = null!;
 
     private string? currentAssemblyPath;
     private CancellationTokenSource? watcherCts;
@@ -30,15 +26,14 @@ public class PatcherForm : Form
     public PatcherForm()
     {
         InitializeComponents();
-        SetupTray();
         LoadDetectedPath();
     }
 
     private void InitializeComponents()
     {
-        Text = "Bongo Cat Mod Manager & Patcher v4.0";
-        Size = new Size(820, 620);
-        MinimumSize = new Size(720, 540);
+        Text = "Bongo Cat Assembly Patcher v3.0";
+        Size = new Size(760, 580);
+        MinimumSize = new Size(680, 500);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(24, 24, 27);
         ForeColor = Color.FromArgb(244, 244, 245);
@@ -48,14 +43,14 @@ public class PatcherForm : Form
         var pnlHeader = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 90,
+            Height = 85,
             BackColor = Color.FromArgb(39, 39, 42),
             Padding = new Padding(16, 12, 16, 12)
         };
 
         var lblTitle = new Label
         {
-            Text = "🐱 Bongo Cat Mod Manager & Patcher v4.0",
+            Text = "🐱 Bongo Cat Assembly Patcher v3.0",
             Font = new Font("Segoe UI", 15f, FontStyle.Bold),
             ForeColor = Color.FromArgb(167, 139, 250),
             AutoSize = true,
@@ -64,11 +59,11 @@ public class PatcherForm : Form
 
         var lblSubtitle = new Label
         {
-            Text = "Отдельная вкладка в меню игры, скины, PawPass, 999k монет, кастомные звуки и защита Steam Guardian",
+            Text = "Полная разблокировка скинов, персистентность, PawPass, 999 999 монет и защита от обновлений",
             Font = new Font("Segoe UI", 9f),
             ForeColor = Color.FromArgb(161, 161, 170),
             AutoSize = true,
-            Location = new Point(18, 48)
+            Location = new Point(18, 45)
         };
 
         lblStatus = new Label
@@ -79,8 +74,8 @@ public class PatcherForm : Form
             BackColor = Color.FromArgb(63, 63, 70),
             AutoSize = false,
             TextAlign = ContentAlignment.MiddleCenter,
-            Size = new Size(200, 34),
-            Location = new Point(580, 22),
+            Size = new Size(200, 32),
+            Location = new Point(520, 22),
             Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
 
@@ -107,7 +102,7 @@ public class PatcherForm : Form
         txtPath = new TextBox
         {
             Location = new Point(18, 30),
-            Width = 630,
+            Width = 580,
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             BackColor = Color.FromArgb(39, 39, 42),
             ForeColor = Color.FromArgb(228, 228, 231),
@@ -118,8 +113,8 @@ public class PatcherForm : Form
         var btnBrowse = new Button
         {
             Text = "Обзор...",
-            Location = new Point(660, 28),
-            Size = new Size(120, 27),
+            Location = new Point(610, 28),
+            Size = new Size(110, 27),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             BackColor = Color.FromArgb(63, 63, 70),
             ForeColor = Color.White,
@@ -136,15 +131,15 @@ public class PatcherForm : Form
         var pnlButtons = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 92,
+            Height = 90,
             Padding = new Padding(16, 4, 16, 4),
             AutoScroll = false
         };
 
-        btnPatch = CreateButton("🚀 Применить патч v4.0", Color.FromArgb(16, 185, 129), 180, 36);
+        btnPatch = CreateButton("🚀 Применить патч", Color.FromArgb(16, 185, 129), 170, 36);
         btnPatch.Click += OnPatchClicked;
 
-        btnRestore = CreateButton("🔄 Восстановить", Color.FromArgb(239, 68, 68), 140, 36);
+        btnRestore = CreateButton("🔄 Восстановить", Color.FromArgb(239, 68, 68), 150, 36);
         btnRestore.Click += OnRestoreClicked;
 
         btnCheck = CreateButton("🔍 Статус", Color.FromArgb(59, 130, 246), 110, 36);
@@ -153,16 +148,13 @@ public class PatcherForm : Form
         btnMods = CreateButton("🎨 Папка скинов", Color.FromArgb(139, 92, 246), 140, 36);
         btnMods.Click += OnOpenModsClicked;
 
-        btnSounds = CreateButton("🎵 Папка звуков", Color.FromArgb(168, 85, 247), 140, 36);
-        btnSounds.Click += OnOpenSoundsClicked;
-
         btnGameDir = CreateButton("📂 Папка игры", Color.FromArgb(75, 85, 99), 130, 36);
         btnGameDir.Click += OnOpenGameDirClicked;
 
         btnWatch = CreateButton("🛡️ Защита Steam", Color.FromArgb(107, 114, 128), 150, 36);
         btnWatch.Click += OnToggleWatcherClicked;
 
-        pnlButtons.Controls.AddRange(new Control[] { btnPatch, btnRestore, btnCheck, btnMods, btnSounds, btnGameDir, btnWatch });
+        pnlButtons.Controls.AddRange(new Control[] { btnPatch, btnRestore, btnCheck, btnMods, btnGameDir, btnWatch });
 
         // Log section
         var pnlLog = new Panel
@@ -189,48 +181,6 @@ public class PatcherForm : Form
         Controls.Add(pnlButtons);
         Controls.Add(pnlPath);
         Controls.Add(pnlHeader);
-
-        // Handle minimize to tray
-        Resize += (s, e) =>
-        {
-            if (WindowState == FormWindowState.Minimized)
-            {
-                Hide();
-                trayIcon.ShowBalloonTip(2000, "Bongo Cat Mod Manager", "Приложение работает в фоновом режиме в системном трее.", ToolTipIcon.Info);
-            }
-        };
-
-        FormClosing += (s, e) =>
-        {
-            trayIcon.Visible = false;
-            watcherCts?.Cancel();
-        };
-    }
-
-    private void SetupTray()
-    {
-        trayMenu = new ContextMenuStrip();
-        trayMenu.Items.Add("🐱 Показать окно", null, (s, e) => RestoreFromTray());
-        trayMenu.Items.Add("🚀 Применить патч", null, (s, e) => OnPatchClicked(s, e));
-        trayMenu.Items.Add("🔄 Восстановить оригинал", null, (s, e) => OnRestoreClicked(s, e));
-        trayMenu.Items.Add(new ToolStripSeparator());
-        trayMenu.Items.Add("✕ Выход", null, (s, e) => { trayIcon.Visible = false; Application.Exit(); });
-
-        trayIcon = new NotifyIcon
-        {
-            Text = "Bongo Cat Mod Manager v4.0",
-            Icon = SystemIcons.Application,
-            ContextMenuStrip = trayMenu,
-            Visible = true
-        };
-        trayIcon.DoubleClick += (s, e) => RestoreFromTray();
-    }
-
-    private void RestoreFromTray()
-    {
-        Show();
-        WindowState = FormWindowState.Normal;
-        BringToFront();
     }
 
     private Button CreateButton(string text, Color backColor, int width, int height)
@@ -264,7 +214,7 @@ public class PatcherForm : Form
 
     private void LoadDetectedPath()
     {
-        Log("Поиск установки Bongo Cat через реестр Steam...");
+        Log("Поиск установки Bongo Cat...");
         currentAssemblyPath = PatcherCore.ResolveAssemblyPath(null, Log);
 
         if (!string.IsNullOrEmpty(currentAssemblyPath))
@@ -294,7 +244,7 @@ public class PatcherForm : Form
         {
             lblStatus.Text = "✔ ПРОПАТЧЕНА";
             lblStatus.BackColor = Color.FromArgb(16, 185, 129);
-            if (announce) Log("[i] Статус: Сборка пропатчена (вкладка мода в меню игры, скины, PawPass, 999k монет активны).");
+            if (announce) Log("[i] Статус: Сборка пропатчена (все скины, персистентность и PawPass активны).");
         }
         else
         {
@@ -327,14 +277,14 @@ public class PatcherForm : Form
             return;
         }
 
-        Log("Запуск процесса патчинга сборки v4.0...");
+        Log("Запуск процесса патчинга сборки...");
         bool ok = PatcherCore.ApplyPatch(currentAssemblyPath, Log);
         UpdateStatus();
 
         if (ok)
         {
-            Log("[V] Патч успешно применён! В игре доступна кнопка рядом с кубиком и отдельная вкладка в меню (без биндов).");
-            MessageBox.Show("Патч успешно применён!\n\n• Кнопка настроек мода добавлена в гардеробе прямо рядом с кубиком рандомайзера!\n• Также доступна отдельная вкладка в верхнем меню игры.\n• Все тумблеры и папки переключаются прямо в игре.\n• Монеты, PawPass и персистентность активны.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Log("[V] Патч успешно завершён!");
+            MessageBox.Show("Патч успешно применён!\n\nВсе скины, персистентность, PawPass и 999 999 монет активированы.", "Успех", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
 
@@ -360,24 +310,10 @@ public class PatcherForm : Form
     private void OnOpenModsClicked(object? sender, EventArgs e)
     {
         if (string.IsNullOrEmpty(currentAssemblyPath)) return;
-        PatcherCore.EnsureDirectories(currentAssemblyPath, Log);
-        string gameRoot = Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(currentAssemblyPath)!)!.FullName)!.FullName;
-        string skinsDir = Path.Combine(gameRoot, "Mods", "Skins");
-        if (Directory.Exists(skinsDir))
+        string modsDir = PatcherCore.EnsureModsDirectory(currentAssemblyPath, Log);
+        if (Directory.Exists(modsDir))
         {
-            Process.Start("explorer.exe", skinsDir);
-        }
-    }
-
-    private void OnOpenSoundsClicked(object? sender, EventArgs e)
-    {
-        if (string.IsNullOrEmpty(currentAssemblyPath)) return;
-        PatcherCore.EnsureDirectories(currentAssemblyPath, Log);
-        string gameRoot = Directory.GetParent(Directory.GetParent(Path.GetDirectoryName(currentAssemblyPath)!)!.FullName)!.FullName;
-        string soundsDir = Path.Combine(gameRoot, "Mods", "Sounds");
-        if (Directory.Exists(soundsDir))
-        {
-            Process.Start("explorer.exe", soundsDir);
+            Process.Start("explorer.exe", modsDir);
         }
     }
 
