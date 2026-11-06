@@ -203,6 +203,8 @@ public static class PatcherCore
         var initMethodRef = module.ImportReference(modMenuType.Methods.First(m => m.Name == "Init"));
         var injectTabMethod = modMenuType.Methods.FirstOrDefault(m => m.Name == "InjectIntoMenuTabs");
         var injectTabMethodRef = injectTabMethod != null ? module.ImportReference(injectTabMethod) : null;
+        var injectToolbarMethod = modMenuType.Methods.FirstOrDefault(m => m.Name == "InjectToolbarButton");
+        var injectToolbarMethodRef = injectToolbarMethod != null ? module.ImportReference(injectToolbarMethod) : null;
 
         var unlockSkinsFieldRef = module.ImportReference(modMenuType.Fields.First(f => f.Name == "UnlockAllSkins"));
         var keepEquippedFieldRef = module.ImportReference(modMenuType.Fields.First(f => f.Name == "KeepEquipped"));
@@ -246,7 +248,26 @@ public static class PatcherCore
             }
         }
 
-        // 3. SteamItemRuntime: IsOwned -> ModMenu.UnlockAllSkins
+        // 3. CatInventory.Awake: Inject ModMenu.InjectToolbarButton(this) - button next to the die!
+        var catInventoryType = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.CatInventory");
+        if (catInventoryType != null && injectToolbarMethodRef != null)
+        {
+            var awake = catInventoryType.Methods.FirstOrDefault(m => m.Name == "Awake");
+            if (awake != null)
+            {
+                bool alreadyInjected = awake.Body.Instructions.Any(i => i.OpCode == OpCodes.Call && i.Operand?.ToString()?.Contains("InjectToolbarButton") == true);
+                if (!alreadyInjected)
+                {
+                    var il = awake.Body.GetILProcessor();
+                    var lastRet = awake.Body.Instructions.Last(i => i.OpCode == OpCodes.Ret);
+                    il.InsertBefore(lastRet, il.Create(OpCodes.Ldarg_0));
+                    il.InsertBefore(lastRet, il.Create(OpCodes.Call, injectToolbarMethodRef));
+                    log?.Invoke("  [+] CatInventory.Awake -> Внедрена кнопка мода рядом с кубиком рандомайзера");
+                }
+            }
+        }
+
+        // 4. SteamItemRuntime: IsOwned -> ModMenu.UnlockAllSkins
         var steamItemRuntime = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.SteamItemRuntime");
         if (steamItemRuntime != null)
         {

@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using TMPro;
 using UnityEngine;
@@ -35,12 +36,215 @@ public class ModMenu : MonoBehaviour
         var go = new GameObject("[BongoCatModManager]");
         DontDestroyOnLoad(go);
         go.AddComponent<ModMenu>();
+
+        if (CatInventory.Instance != null)
+        {
+            InjectToolbarButton(CatInventory.Instance);
+        }
     }
 
     private void Awake()
     {
         LoadSettings();
         ApplyFpsLimit();
+    }
+
+    public static void InjectToolbarButton(CatInventory catInventory)
+    {
+        if (catInventory == null) return;
+        catInventory.StartCoroutine(InjectToolbarDelayed(catInventory));
+    }
+
+    private static IEnumerator InjectToolbarDelayed(CatInventory catInventory)
+    {
+        yield return null; // Wait 1 frame so all sibling components finish Awake/Start
+
+        try
+        {
+            HatRandomizer? dieRandomizer = catInventory.CatRandomizer;
+            if (dieRandomizer == null)
+            {
+                dieRandomizer = catInventory.GetComponentInChildren<HatRandomizer>(true);
+            }
+            if (dieRandomizer == null)
+            {
+                dieRandomizer = global::UnityEngine.Object.FindObjectOfType<HatRandomizer>();
+            }
+            if (dieRandomizer == null) yield break;
+
+            Transform dieTransform = dieRandomizer.transform;
+            Transform toolbar = dieTransform.parent;
+            if (toolbar == null) yield break;
+
+            if (toolbar.Find("ModMenuToolbarButton") != null) yield break;
+
+            // Clone button from die button
+            GameObject modBtnGo = global::UnityEngine.Object.Instantiate(dieTransform.gameObject, toolbar);
+            modBtnGo.name = "ModMenuToolbarButton";
+
+            // Remove HatRandomizer script from cloned button
+            HatRandomizer? clonedHr = modBtnGo.GetComponent<HatRandomizer>();
+            if (clonedHr != null)
+            {
+                global::UnityEngine.Object.Destroy(clonedHr);
+            }
+
+            // Place right next to the die (dieIndex + 1)
+            int dieIndex = dieTransform.GetSiblingIndex();
+            modBtnGo.transform.SetSiblingIndex(dieIndex + 1);
+
+            // Style with gear sprite (from child 0) and distinct pastel purple accent
+            Image modBtnImg = modBtnGo.GetComponent<Image>() ?? modBtnGo.GetComponentInChildren<Image>();
+            if (modBtnImg != null)
+            {
+                if (toolbar.childCount > 0)
+                {
+                    Image? gearImg = toolbar.GetChild(0).GetComponentInChildren<Image>();
+                    if (gearImg != null && gearImg.sprite != null)
+                    {
+                        modBtnImg.sprite = gearImg.sprite;
+                    }
+                }
+                modBtnImg.color = new Color(0.75f, 0.45f, 1f, 1f);
+            }
+
+            // Disable old tooltips on cloned button
+            foreach (var mb in modBtnGo.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb != null && mb.GetType().Name.Contains("Tooltip"))
+                {
+                    mb.enabled = false;
+                }
+            }
+
+            // Create flyout settings window cloned from dieRandomizer.SettingsWindow or _inventorySettingsWindow
+            GameObject? flyoutWindow = null;
+            RectTransform? randomizerSettings = dieRandomizer.SettingsWindow;
+            if (randomizerSettings != null)
+            {
+                flyoutWindow = global::UnityEngine.Object.Instantiate(randomizerSettings.gameObject, randomizerSettings.parent);
+                flyoutWindow.name = "ModMenuFlyoutWindow";
+                flyoutWindow.SetActive(false);
+
+                SetupFlyoutContent(flyoutWindow);
+            }
+
+            // Setup button click
+            Button btn = modBtnGo.GetComponent<Button>() ?? modBtnGo.GetComponentInChildren<Button>();
+            if (btn != null)
+            {
+                btn.onClick = new Button.ButtonClickedEvent();
+                btn.onClick.AddListener(() =>
+                {
+                    if (flyoutWindow != null)
+                    {
+                        ToggleGameObject? toggle = flyoutWindow.GetComponent<ToggleGameObject>();
+                        if (toggle != null)
+                        {
+                            toggle.Toggle();
+                        }
+                        else
+                        {
+                            flyoutWindow.SetActive(!flyoutWindow.activeSelf);
+                        }
+                    }
+                    else
+                    {
+                        // Fallback: switch to Mod tab
+                        Tabs? tabs = catInventory.Tabs ?? global::UnityEngine.Object.FindObjectOfType<Tabs>();
+                        if (tabs != null)
+                        {
+                            FieldInfo? tabsField = typeof(Tabs).GetField("tabs", BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (tabsField?.GetValue(tabs) is Array arr && arr.Length > 0)
+                            {
+                                tabs.OpenTab(arr.Length - 1);
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            global::UnityEngine.Debug.LogError("[BongoCatMod] Error injecting toolbar button: " + ex);
+        }
+    }
+
+    private static void SetupFlyoutContent(GameObject flyoutWindow)
+    {
+        try
+        {
+            // Title text
+            TMP_Text[] titles = flyoutWindow.GetComponentsInChildren<TMP_Text>(true);
+            if (titles.Length > 0)
+            {
+                titles[0].text = "🐱 Настройки мода";
+                LocalizeStringEvent loc = titles[0].GetComponent<LocalizeStringEvent>();
+                if (loc != null) loc.enabled = false;
+            }
+
+            // Hide dropdown
+            TMP_Dropdown[] dropdowns = flyoutWindow.GetComponentsInChildren<TMP_Dropdown>(true);
+            foreach (var dd in dropdowns)
+            {
+                dd.gameObject.SetActive(false);
+            }
+
+            // Find existing PlayerPrefsToggle
+            PlayerPrefsToggle[] existingToggles = flyoutWindow.GetComponentsInChildren<PlayerPrefsToggle>(true);
+            GameObject? rowTemplate = existingToggles.Length > 0 ? existingToggles[0].gameObject : null;
+
+            if (rowTemplate != null)
+            {
+                Transform container = rowTemplate.transform.parent;
+
+                // Deactivate original children in container
+                for (int i = 0; i < container.childCount; i++)
+                {
+                    container.GetChild(i).gameObject.SetActive(false);
+                }
+
+                // Add mod toggles
+                CreateToggleRow(rowTemplate, container, "Разблокировать все скины и шапки", "BMOD_SKINS", UnlockAllSkins, v => UnlockAllSkins = v);
+                CreateToggleRow(rowTemplate, container, "Сохранять экипировку при перезапуске", "BMOD_PERSIST", KeepEquipped, v => KeepEquipped = v);
+                CreateToggleRow(rowTemplate, container, "Разблокировать боевой пропуск (PawPass)", "BMOD_PAWPASS", UnlockPawPass, v => UnlockPawPass = v);
+                CreateToggleRow(rowTemplate, container, "999 999 монет в копилке", "BMOD_COINS", InfiniteCoins, v => InfiniteCoins = v);
+                CreateToggleRow(rowTemplate, container, "Разблокировать скрытые промо-предметы", "BMOD_PROMO", UnlockPromoItems, v => UnlockPromoItems = v);
+                CreateToggleRow(rowTemplate, container, "Кастомные звуки нажатий (Mods/Sounds)", "BMOD_SOUNDS", CustomSounds, v => CustomSounds = v);
+
+                // Add folder buttons
+                Button? templateBtn = flyoutWindow.GetComponentsInChildren<Button>(true).FirstOrDefault(b => b.gameObject.name != "ModMenuToolbarButton");
+                if (templateBtn != null)
+                {
+                    CreateActionButton(templateBtn.gameObject, container, "🎨 Папка скинов (Mods/Skins)", () =>
+                    {
+                        OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Skins"));
+                    });
+
+                    CreateActionButton(templateBtn.gameObject, container, "🎵 Папка звуков (Mods/Sounds)", () =>
+                    {
+                        OpenFolder(Path.Combine(Application.dataPath, "..", "Mods", "Sounds"));
+                    });
+                }
+
+                // Make window size comfortable
+                RectTransform rt = flyoutWindow.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    rt.sizeDelta = new Vector2(Mathf.Max(rt.sizeDelta.x, 340f), Mathf.Max(rt.sizeDelta.y, 440f));
+                }
+
+                VerticalLayoutGroup vlg = container.GetComponent<VerticalLayoutGroup>();
+                if (vlg != null)
+                {
+                    vlg.spacing = 4f;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            global::UnityEngine.Debug.LogError("[BongoCatMod] Error setting up flyout content: " + ex);
+        }
     }
 
     public static void InjectIntoMenuTabs(MenuTabs menuTabs)
