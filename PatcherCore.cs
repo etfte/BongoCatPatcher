@@ -256,6 +256,18 @@ public static class PatcherCore
                 PatchReturnBool(isHidden, false);
                 log?.Invoke("  [+] SteamItemRuntime.IsHiddenInInventory -> false (ничего не скрыто)");
             }
+
+            // Инициализация IsNew = false в конструкторе, чтобы открытые скины не считались новыми
+            var ctor = steamItemRuntime.Methods.FirstOrDefault(m => m.Name == ".ctor");
+            if (ctor != null)
+            {
+                var stfldIsNew = ctor.Body.Instructions.FirstOrDefault(i => i.OpCode == OpCodes.Stfld && i.Operand?.ToString()?.Contains("IsNew") == true);
+                if (stfldIsNew?.Previous != null)
+                {
+                    stfldIsNew.Previous.OpCode = OpCodes.Ldc_I4_0;
+                    log?.Invoke("  [+] SteamItemRuntime.ctor -> IsNew = false (скины не помечаются новыми)");
+                }
+            }
         }
 
         // 2. ItemCollection: IsRevealed -> true
@@ -354,6 +366,41 @@ public static class PatcherCore
             }
         }
 
+        // 7. InventoryItem: отключение индикатора новизны для открытых скинов
+        var inventoryItem = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.InventoryItem");
+        if (inventoryItem != null)
+        {
+            var updateInventoryItem = inventoryItem.Methods.FirstOrDefault(m => m.Name == "UpdateInventoryItem");
+            if (updateInventoryItem != null)
+            {
+                PatchInventoryItemIsNew(updateInventoryItem);
+                log?.Invoke("  [+] InventoryItem.UpdateInventoryItem -> индикатор 'NEW' отключён");
+            }
+
+            var onItemUpdated = inventoryItem.Methods.FirstOrDefault(m => m.Name == "OnItemUpdated");
+            if (onItemUpdated != null)
+            {
+                PatchOnItemUpdatedIsNew(onItemUpdated);
+                log?.Invoke("  [+] InventoryItem.OnItemUpdated -> подсветка новизны отключена");
+            }
+        }
+
+        // 8. CatInventory: сброс флага IsNew для всех предметов
+        var catInventory = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.CatInventory");
+        if (catInventory != null)
+        {
+            var nestedC = catInventory.NestedTypes.FirstOrDefault(nt => nt.Name == "<>c");
+            if (nestedC != null)
+            {
+                var b29_5 = nestedC.Methods.FirstOrDefault(m => m.Name == "<HandleInventoryUpdate>b__29_5");
+                if (b29_5 != null)
+                {
+                    PatchReturnBool(b29_5, true);
+                    log?.Invoke("  [+] CatInventory.HandleInventoryUpdate -> авто-сброс IsNew для всех предметов");
+                }
+            }
+        }
+
         // Без накрутки монет (оригинальный баланс остаётся нетронутым)
 
         try
@@ -400,6 +447,63 @@ public static class PatcherCore
                 curr = next;
             }
             il.InsertBefore(stloc1, il.Create(OpCodes.Ldc_I4_0));
+        }
+    }
+
+    private static void PatchInventoryItemIsNew(MethodDefinition method)
+    {
+        var stloc0 = method.Body.Instructions.FirstOrDefault(i => i.OpCode == OpCodes.Stloc_0);
+        if (stloc0 != null)
+        {
+            var curr = method.Body.Instructions[0];
+            while (curr != null && curr != stloc0)
+            {
+                if (curr.Next == stloc0)
+                {
+                    curr.OpCode = OpCodes.Ldc_I4_0;
+                    curr.Operand = null;
+                }
+                else
+                {
+                    curr.OpCode = OpCodes.Nop;
+                    curr.Operand = null;
+                }
+                curr = curr.Next;
+            }
+        }
+    }
+
+    private static void PatchOnItemUpdatedIsNew(MethodDefinition method)
+    {
+        var isNewInst = method.Body.Instructions.FirstOrDefault(i => i.OpCode == OpCodes.Ldfld && i.Operand?.ToString()?.Contains("IsNew") == true);
+        if (isNewInst?.Previous?.Previous != null)
+        {
+            var start = isNewInst.Previous.Previous; // ldarg.0
+            var curr = isNewInst;
+            while (curr != null && curr.OpCode != OpCodes.Stloc_0)
+            {
+                curr = curr.Next;
+            }
+
+            var stloc0 = curr;
+            if (stloc0 != null)
+            {
+                var p = start;
+                while (p != null && p != stloc0)
+                {
+                    if (p.Next == stloc0)
+                    {
+                        p.OpCode = OpCodes.Ldc_I4_0;
+                        p.Operand = null;
+                    }
+                    else
+                    {
+                        p.OpCode = OpCodes.Nop;
+                        p.Operand = null;
+                    }
+                    p = p.Next;
+                }
+            }
         }
     }
 
