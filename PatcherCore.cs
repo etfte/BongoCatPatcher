@@ -401,6 +401,57 @@ public static class PatcherCore
             }
         }
 
+        // 9. Модуль мульти-спавна котов и хоткеев (BongoCatMods)
+        string patcherDir = AppDomain.CurrentDomain.BaseDirectory;
+        string sourceModDll = Path.Combine(patcherDir, "BongoCatMods.dll");
+        string destModDll = Path.Combine(managedDir, "BongoCatMods.dll");
+
+        if (File.Exists(sourceModDll))
+        {
+            try
+            {
+                File.Copy(sourceModDll, destModDll, overwrite: true);
+                log?.Invoke("  [+] Файл BongoCatMods.dll скопирован в папку Managed");
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"  [-] Не удалось скопировать BongoCatMods.dll: {ex.Message}");
+            }
+        }
+
+        if (File.Exists(destModDll))
+        {
+            try
+            {
+                using var modsAsm = AssemblyDefinition.ReadAssembly(destModDll, new ReaderParameters { AssemblyResolver = resolver });
+                var catCloneManager = modsAsm.MainModule.Types.FirstOrDefault(t => t.FullName == "BongoCatMods.CatCloneManager");
+                var mUpdate = catCloneManager?.Methods.FirstOrDefault(m => m.Name == "Update");
+                var mainCat = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.MainCat");
+                var mainCatUpdate = mainCat?.Methods.FirstOrDefault(m => m.Name == "Update");
+
+                if (mUpdate != null && mainCatUpdate != null)
+                {
+                    bool alreadyHooked = mainCatUpdate.Body.Instructions.Any(i => i.OpCode == OpCodes.Call && i.Operand?.ToString()?.Contains("CatCloneManager::Update") == true);
+                    if (!alreadyHooked)
+                    {
+                        var updateRef = module.ImportReference(mUpdate);
+                        var il = mainCatUpdate.Body.GetILProcessor();
+                        var first = mainCatUpdate.Body.Instructions[0];
+                        il.InsertBefore(first, il.Create(OpCodes.Call, updateRef));
+                        log?.Invoke("  [+] MainCat.Update -> подключен CatCloneManager (F7: спавн, F5: убрать, F9: смена скинов, F10: PawPass)");
+                    }
+                    else
+                    {
+                        log?.Invoke("  [*] MainCat.Update -> CatCloneManager уже активен");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log?.Invoke($"  [-] Ошибка подключения CatCloneManager: {ex.Message}");
+            }
+        }
+
         // Без накрутки монет (оригинальный баланс остаётся нетронутым)
 
         try
