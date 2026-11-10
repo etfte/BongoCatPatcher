@@ -347,26 +347,7 @@ public static class PatcherCore
             }
         }
 
-        // 6. Multiplayer: LobbyItemOwnership (IsOwned -> true, OwnsItem -> true)
-        var lobbyItemOwnership = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.Multiplayer.LobbyItemOwnership");
-        if (lobbyItemOwnership != null)
-        {
-            var isOwned = lobbyItemOwnership.Methods.FirstOrDefault(m => m.Name == "IsOwned");
-            if (isOwned != null)
-            {
-                PatchReturnBool(isOwned, true);
-                log?.Invoke("  [+] LobbyItemOwnership.IsOwned -> true (подтверждение владения в сетевом лобби)");
-            }
-
-            var ownsItem = lobbyItemOwnership.Methods.FirstOrDefault(m => m.Name == "OwnsItem");
-            if (ownsItem != null)
-            {
-                PatchReturnBool(ownsItem, true);
-                log?.Invoke("  [+] LobbyItemOwnership.OwnsItem -> true (синхронизация скинов в сетевом лобби)");
-            }
-        }
-
-        // 7. InventoryItem: отключение индикатора новизны для открытых скинов
+        // 6. InventoryItem: отключение индикатора новизны для открытых скинов
         var inventoryItem = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.InventoryItem");
         if (inventoryItem != null)
         {
@@ -385,7 +366,7 @@ public static class PatcherCore
             }
         }
 
-        // 8. CatInventory: сброс флага IsNew для всех предметов
+        // 7. CatInventory: сброс флага IsNew для всех предметов
         var catInventory = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.CatInventory");
         if (catInventory != null)
         {
@@ -398,57 +379,6 @@ public static class PatcherCore
                     PatchReturnBool(b29_5, true);
                     log?.Invoke("  [+] CatInventory.HandleInventoryUpdate -> авто-сброс IsNew для всех предметов");
                 }
-            }
-        }
-
-        // 9. Модуль мульти-спавна котов и хоткеев (BongoCatMods)
-        string patcherDir = AppDomain.CurrentDomain.BaseDirectory;
-        string sourceModDll = Path.Combine(patcherDir, "BongoCatMods.dll");
-        string destModDll = Path.Combine(managedDir, "BongoCatMods.dll");
-
-        if (File.Exists(sourceModDll))
-        {
-            try
-            {
-                File.Copy(sourceModDll, destModDll, overwrite: true);
-                log?.Invoke("  [+] Файл BongoCatMods.dll скопирован в папку Managed");
-            }
-            catch (Exception ex)
-            {
-                log?.Invoke($"  [-] Не удалось скопировать BongoCatMods.dll: {ex.Message}");
-            }
-        }
-
-        if (File.Exists(destModDll))
-        {
-            try
-            {
-                using var modsAsm = AssemblyDefinition.ReadAssembly(destModDll, new ReaderParameters { AssemblyResolver = resolver });
-                var catCloneManager = modsAsm.MainModule.Types.FirstOrDefault(t => t.FullName == "BongoCatMods.CatCloneManager");
-                var mUpdate = catCloneManager?.Methods.FirstOrDefault(m => m.Name == "Update");
-                var mainCat = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.MainCat");
-                var mainCatUpdate = mainCat?.Methods.FirstOrDefault(m => m.Name == "Update");
-
-                if (mUpdate != null && mainCatUpdate != null)
-                {
-                    bool alreadyHooked = mainCatUpdate.Body.Instructions.Any(i => i.OpCode == OpCodes.Call && i.Operand?.ToString()?.Contains("CatCloneManager::Update") == true);
-                    if (!alreadyHooked)
-                    {
-                        var updateRef = module.ImportReference(mUpdate);
-                        var il = mainCatUpdate.Body.GetILProcessor();
-                        var first = mainCatUpdate.Body.Instructions[0];
-                        il.InsertBefore(first, il.Create(OpCodes.Call, updateRef));
-                        log?.Invoke("  [+] MainCat.Update -> подключен CatCloneManager (F7: спавн, F5: убрать, F9: смена скинов, F10: PawPass)");
-                    }
-                    else
-                    {
-                        log?.Invoke("  [*] MainCat.Update -> CatCloneManager уже активен");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                log?.Invoke($"  [-] Ошибка подключения CatCloneManager: {ex.Message}");
             }
         }
 

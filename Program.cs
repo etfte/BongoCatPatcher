@@ -159,17 +159,7 @@ class Program
         if (success)
         {
             Console.WriteLine();
-            logCli("[V] Патч успешно применён!");
-            Console.WriteLine();
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("=====================================================");
-            Console.WriteLine("  Горячие клавиши в игре:");
-            Console.WriteLine("    [F7]  - Спавн нового кота (синхронные лапки + скин)");
-            Console.WriteLine("    [F5]  - Удалить последнего кота-клона");
-            Console.WriteLine("    [F9]  - Случайно переодеть всех клонов");
-            Console.WriteLine("    [F10] - Разблокировать и забрать награды PawPass");
-            Console.WriteLine("=====================================================");
-            Console.ResetColor();
+            logCli("[V] Патч успешно применён! Все скины и PawPass разблокированы.");
             return 0;
         }
 
