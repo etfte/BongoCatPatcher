@@ -335,6 +335,25 @@ public static class PatcherCore
             }
         }
 
+        // 6. Multiplayer: LobbyItemOwnership (IsOwned -> true, OwnsItem -> true)
+        var lobbyItemOwnership = module.Types.FirstOrDefault(t => t.FullName == "BongoCat.Multiplayer.LobbyItemOwnership");
+        if (lobbyItemOwnership != null)
+        {
+            var isOwned = lobbyItemOwnership.Methods.FirstOrDefault(m => m.Name == "IsOwned");
+            if (isOwned != null)
+            {
+                PatchReturnBool(isOwned, true);
+                log?.Invoke("  [+] LobbyItemOwnership.IsOwned -> true (подтверждение владения в сетевом лобби)");
+            }
+
+            var ownsItem = lobbyItemOwnership.Methods.FirstOrDefault(m => m.Name == "OwnsItem");
+            if (ownsItem != null)
+            {
+                PatchReturnBool(ownsItem, true);
+                log?.Invoke("  [+] LobbyItemOwnership.OwnsItem -> true (синхронизация скинов в сетевом лобби)");
+            }
+        }
+
         // Без накрутки монет (оригинальный баланс остаётся нетронутым)
 
         try
